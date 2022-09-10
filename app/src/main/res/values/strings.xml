@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Timezone Buddy</string>
+    <string name="message">Watch face tapped</string>
+    <string name="default_watch_face_name">Timezone Buddy</string>
+</resources>
