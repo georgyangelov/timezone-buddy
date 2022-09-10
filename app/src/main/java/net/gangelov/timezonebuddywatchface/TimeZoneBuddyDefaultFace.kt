@@ -4,17 +4,17 @@ import android.graphics.*
 import android.os.Bundle
 import android.support.wearable.watchface.CanvasWatchFaceService
 import android.support.wearable.watchface.WatchFaceStyle
-import android.util.Log
 import android.view.SurfaceHolder
 import androidx.core.graphics.minus
 import androidx.core.graphics.plus
 import androidx.core.math.MathUtils
 import java.time.*
 import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 import java.util.*
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
 
 data class TimeZoneConfig(
     val timeZone: TimeZone,
@@ -132,6 +132,8 @@ class WatchFacePainter(
     private val primaryArcInset = arcInset + 0f
     private val secondaryArcInset = arcInset + 15f
 
+    private val clockFormat = DateTimeFormatter.ofPattern("HH:mm")
+
     private val baseArcPaint = Paint().apply {
         style = Paint.Style.STROKE
         color = Color.rgb(40, 40, 40)
@@ -172,7 +174,7 @@ class WatchFacePainter(
         strokeCap = Paint.Cap.ROUND
     }
 
-    val hourMarkersPaint = Paint().apply {
+    private val hourMarkersPaint = Paint().apply {
         color = Color.rgb(255, 255, 255)
         isAntiAlias = true
         alpha = 200
@@ -195,13 +197,14 @@ class WatchFacePainter(
     fun drawOn(canvas: Canvas, calendar: Calendar) {
         canvas.drawColor(Color.BLACK)
 
-        // TODO: Cache these calculations?
         val now = calendar.toInstant()
-        val offsetOfCurrentZone = now.atZone(TimeZone.getDefault().toZoneId()).offset.totalSeconds
-//        val offsetOfCurrentZone = now.atZone(TimeZone.getTimeZone("France/Paris").toZoneId()).offset.totalSeconds
-//        val offsetOfCurrentZone = now.atZone(TimeZone.getTimeZone("America/New_York").toZoneId()).offset.totalSeconds
-        val offsetOfPrimaryZone = now.atZone(primaryTimeZone.timeZone.toZoneId()).offset.totalSeconds
-        val offsetOfSecondaryZone = now.atZone(secondaryTimeZone.timeZone.toZoneId()).offset.totalSeconds
+        val nowAtDefaultZone = now.atZone(TimeZone.getDefault().toZoneId())
+        val nowAtPrimaryZone = now.atZone(primaryTimeZone.timeZone.toZoneId())
+        val nowAtSecondaryZone = now.atZone(secondaryTimeZone.timeZone.toZoneId())
+
+        val offsetOfCurrentZone = nowAtDefaultZone.offset.totalSeconds
+        val offsetOfPrimaryZone = nowAtPrimaryZone.offset.totalSeconds
+        val offsetOfSecondaryZone = nowAtSecondaryZone.offset.totalSeconds
 
         val primaryOffset = offsetOfCurrentZone - offsetOfPrimaryZone
         val secondaryOffset = offsetOfCurrentZone - offsetOfSecondaryZone
@@ -214,22 +217,21 @@ class WatchFacePainter(
         drawArcForTimeInterval(canvas, secondaryTimeZone.dayTime, secondaryOffset, secondaryArcRect, secondaryMutedPaint)
         drawArcForTimeInterval(canvas, secondaryTimeZone.workTime, secondaryOffset, secondaryArcRect, secondaryPaint)
 
-        val currentTime = now.atZone(TimeZone.getDefault().toZoneId())
-        val currentTimeSeconds = currentTime.toLocalTime().toSecondOfDay()
+        val localTimeAtDefaultZone = nowAtDefaultZone.toLocalTime()
 
-        drawHourLabels(canvas, center, primaryArcInset - 20f, primaryOffset, currentTimeSeconds)
-        drawHourLabels(canvas, center, secondaryArcInset + 20f, secondaryOffset, currentTimeSeconds)
+        drawHourLabels(canvas, center, primaryArcInset - 20f, primaryOffset, localTimeAtDefaultZone)
+        drawHourLabels(canvas, center, secondaryArcInset + 20f, secondaryOffset, localTimeAtDefaultZone)
 
         drawCurrentTimeIndicator(
             canvas, center,
             primaryArcInset - 5f, secondaryArcInset + 5f,
-            currentTimeSeconds
+            localTimeAtDefaultZone
         )
 
         if (primaryOffset != 0) {
             drawDigitalClock(
                 canvas, center - PointF(0f, 60f),
-                now.atZone(primaryTimeZone.timeZone.toZoneId()).toLocalTime(),
+                nowAtPrimaryZone.toLocalTime(),
                 color = primaryTimeZone.color,
                 fontSize = 42f
             )
@@ -242,7 +244,7 @@ class WatchFacePainter(
 
         drawDigitalClock(
             canvas, center,
-            currentTime.toLocalTime(),
+            localTimeAtDefaultZone,
             color = currentTimeColor,
             fontSize = 72f
         )
@@ -250,7 +252,7 @@ class WatchFacePainter(
         if (secondaryOffset != 0) {
             drawDigitalClock(
                 canvas, center + PointF(0f, 60f),
-                now.atZone(secondaryTimeZone.timeZone.toZoneId()).toLocalTime(),
+                nowAtSecondaryZone.toLocalTime(),
                 color = secondaryTimeZone.color,
                 fontSize = 42f
             )
@@ -284,41 +286,40 @@ class WatchFacePainter(
         return (x - min) / (max - min)
     }
 
+    private val textBoundsTmp = Rect()
+
     private fun drawHourLabels(
         canvas: Canvas,
         center: PointF,
         inset: Float,
         timeZoneOffsetInSeconds: Int,
-        nowSeconds: Int
+        time: LocalTime
     ) {
         val textRadius = center.x - inset
         val angleOffset = timeZoneOffsetInSeconds / 240f
-        val currentTimeAngle = nowSeconds / 240f
-
-        // TODO: Do not initialize on each call?
-        val textBounds = Rect()
+        val currentTimeAngle = time.toSecondOfDay() / 240f
 
         for (tickIndex in 0..23) {
             val tickRotationDegrees = tickIndex.toDouble() * 360 / 24 + angleOffset
 
             val angleDifference = abs(currentTimeAngle - tickRotationDegrees) % 360
-            val angleDifferenceAbs = Math.abs(if (angleDifference > 180) 360 - angleDifference else angleDifference).toFloat()
+            val angleDifferenceAbs = abs(if (angleDifference > 180) 360 - angleDifference else angleDifference).toFloat()
 
             hourMarkersPaint.alpha = lerp(fraction(MathUtils.clamp(angleDifferenceAbs, 0f, 120f), 0f, 120f), 255f, 50f).roundToInt()
 
             val tickRotationRadians = tickRotationDegrees * Math.PI / 180f
 
-            val textX = Math.sin(tickRotationRadians).toFloat() * textRadius
-            val textY = (-Math.cos(tickRotationRadians)).toFloat() * textRadius
+            val textX = sin(tickRotationRadians).toFloat() * textRadius
+            val textY = (-cos(tickRotationRadians)).toFloat() * textRadius
 
             val hourLabel = tickIndex.toString()
 
-            hourMarkersPaint.getTextBounds(hourLabel, 0, hourLabel.length, textBounds)
+            hourMarkersPaint.getTextBounds(hourLabel, 0, hourLabel.length, textBoundsTmp)
 
             canvas.drawText(
                 hourLabel,
-                center.x + textX - textBounds.exactCenterX(),
-                center.y + textY - textBounds.exactCenterY(),
+                center.x + textX - textBoundsTmp.exactCenterX(),
+                center.y + textY - textBoundsTmp.exactCenterY(),
                 hourMarkersPaint
             )
         }
@@ -329,19 +330,19 @@ class WatchFacePainter(
         center: PointF,
         outerInset: Float,
         innerInset: Float,
-        nowSeconds: Int
+        time: LocalTime
     ) {
-        val rotationDegrees = nowSeconds / 240f
+        val rotationDegrees = time.toSecondOfDay() / 240f
         val rotationRadians = rotationDegrees * Math.PI / 180f
 
         val innerRadius = center.x - innerInset
         val outerRadius = center.x - outerInset
 
-        val insideX = Math.sin(rotationRadians).toFloat() * innerRadius
-        val insideY = (-Math.cos(rotationRadians)).toFloat() * innerRadius
+        val insideX = sin(rotationRadians).toFloat() * innerRadius
+        val insideY = (-cos(rotationRadians)).toFloat() * innerRadius
 
-        val outsideX = Math.sin(rotationRadians).toFloat() * outerRadius
-        val outsideY = (-Math.cos(rotationRadians)).toFloat() * outerRadius
+        val outsideX = sin(rotationRadians).toFloat() * outerRadius
+        val outsideY = (-cos(rotationRadians)).toFloat() * outerRadius
 
         val currentTimeIndicatorPaint = Paint().apply {
             style = Paint.Style.STROKE
@@ -358,21 +359,21 @@ class WatchFacePainter(
         )
     }
 
-    private fun drawDigitalClock(canvas: Canvas, center: PointF, time: LocalTime, fontSize: Float, color: Int) {
-        val paint = Paint().apply {
-            this.color = color
-            isAntiAlias = true
-            textSize = fontSize
-        }
+    private val digitalClockPaintTmp = Paint().apply {
+        isAntiAlias = true
+    }
 
-        val text = time.format(DateTimeFormatter.ofPattern("HH:mm"))
-        val textBounds = Rect()
-        paint.getTextBounds(text, 0, text.length, textBounds)
+    private fun drawDigitalClock(canvas: Canvas, center: PointF, time: LocalTime, fontSize: Float, color: Int) {
+        digitalClockPaintTmp.color = color
+        digitalClockPaintTmp.textSize = fontSize
+
+        val text = time.format(clockFormat)
+        digitalClockPaintTmp.getTextBounds(text, 0, text.length, textBoundsTmp)
 
         canvas.drawText(
             text,
-            center.x - textBounds.exactCenterX(), center.y - textBounds.exactCenterY(),
-            paint
+            center.x - textBoundsTmp.exactCenterX(), center.y - textBoundsTmp.exactCenterY(),
+            digitalClockPaintTmp
         )
     }
 }
