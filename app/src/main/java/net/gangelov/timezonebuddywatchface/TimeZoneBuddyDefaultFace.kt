@@ -179,6 +179,7 @@ class WatchFacePainter(
         isAntiAlias = true
         alpha = 200
         textSize = 18f
+        typeface = Typeface.DEFAULT_BOLD
     }
 
     private lateinit var center: PointF
@@ -305,7 +306,7 @@ class WatchFacePainter(
             val angleDifference = abs(currentTimeAngle - tickRotationDegrees) % 360
             val angleDifferenceAbs = abs(if (angleDifference > 180) 360 - angleDifference else angleDifference).toFloat()
 
-            hourMarkersPaint.alpha = lerp(fraction(MathUtils.clamp(angleDifferenceAbs, 0f, 120f), 0f, 120f), 255f, 50f).roundToInt()
+            hourMarkersPaint.alpha = lerp(fraction(MathUtils.clamp(angleDifferenceAbs, 0f, 120f), 0f, 120f), 255f, 100f).roundToInt()
 
             val tickRotationRadians = tickRotationDegrees * Math.PI / 180f
 
@@ -361,6 +362,7 @@ class WatchFacePainter(
 
     private val digitalClockPaintTmp = Paint().apply {
         isAntiAlias = true
+        typeface = Typeface.DEFAULT_BOLD
     }
 
     private fun drawDigitalClock(canvas: Canvas, center: PointF, time: LocalTime, fontSize: Float, color: Int) {
